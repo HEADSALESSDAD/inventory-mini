@@ -1,56 +1,60 @@
 # app/main.py
 """
-Inventory Mini - FastAPI + SQLite + Simple Warehouse UI
+BEGINNER-FRIENDLY MAIN FILE (FastAPI)
 
-What this file does (beginner-friendly):
+What this file does:
 1) Creates the FastAPI app
-2) Creates database tables (SQLite) if they don't exist
-3) Provides CRUD APIs for /items
-4) Serves a clean HTML UI at "/"
-5) Exports inventory to Excel (.xlsx) and PDF (A4)
+2) Creates DB tables on startup (SQLite/Postgres)
+3) Serves a clean HTML dashboard (English UI only)
+4) Provides CRUD APIs for Items
+5) Provides Excel + PDF (A4) export endpoints
 
-Note:
-- UI is English only (as requested).
-- UI is rendered as a template, but items are loaded via JavaScript (no "stuck loading").
+Tip:
+- "API" is for machines (Swagger /docs)
+- "Dashboard" is for humans (browser UI)
 """
 
-from __future__ import annotations
-
-from io import BytesIO
-from datetime import datetime
-from pathlib import Path
-from typing import Optional, List
+from typing import List, Optional
 
 from fastapi import FastAPI, Depends, Request, HTTPException
 from fastapi.responses import HTMLResponse, StreamingResponse
+from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 
-# Your local modules (you already have these files in /app)
+# Local project imports
 from .db import SessionLocal, engine, Base
-from . import models, schemas
+from . import schemas, crud
 
-# -----------------------------
-# App + Templates
-# -----------------------------
-
-app = FastAPI(title="Inventory Mini", version="0.1.0")
-
-# Always use an absolute path for templates (prevents path issues on Windows)
-TEMPLATES_DIR = Path(__file__).resolve().parent / "templates"
-templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
-
-# Create tables once at startup (SQLite needs it)
-Base.metadata.create_all(bind=engine)
+# If you already have export_utils, we use it.
+# If you don't, comment these 2 lines and tell me, I’ll paste a self-contained exporter.
+from .export_utils import items_to_xlsx_bytes, items_to_pdf_bytes, make_export_filename
 
 
-# -----------------------------
-# Database session (Dependency)
-# -----------------------------
+# ----------------------------
+# 1) Create the app
+# ----------------------------
+app = FastAPI(title="Inventory Mini", version="0.2.0")
+
+
+# ----------------------------
+# 2) Static files (CSS/JS)
+# ----------------------------
+# This lets your templates load: /static/css/app.css and /static/js/app.js
+app.mount("/static", StaticFiles(directory="app/static"), name="static")
+
+# Templates folder (HTML)
+templates = Jinja2Templates(directory="app/templates")
+
+
+# ----------------------------
+# 3) DB session dependency
+# ----------------------------
 def get_db():
     """
-    Creates a DB session for each request and closes it afterwards.
-    This avoids leaving connections open.
+    Creates a DB session per request, then closes it.
+    Why?
+    - If you don't close sessions, connections pile up and your app gets slow/broken.
     """
     db = SessionLocal()
     try:
@@ -59,219 +63,163 @@ def get_db():
         db.close()
 
 
-# -----------------------------
-# Health
-# -----------------------------
+# ----------------------------
+# 4) Create tables on startup
+# ----------------------------
+@app.on_event("startup")
+def on_startup():
+    """
+    Runs once when the server starts.
+    Creates DB tables if they do not exist.
+    """
+    Base.metadata.create_all(bind=engine)
+
+
+# ----------------------------
+# 5) Health check (for Render)
+# ----------------------------
 @app.get("/health")
 def health():
-    return {"status": "ok", "app": "Inventory Mini"}
+    return {"status": "ok"}
 
 
-# -----------------------------
-# UI (Home)
-# -----------------------------
+# ----------------------------
+# 6) Dashboard page (English UI)
+# ----------------------------
 @app.get("/", response_class=HTMLResponse)
-def home(request: Request):
+def home(request: Request, db: Session = Depends(get_db)):
     """
-    Serves the UI shell.
-    Items are loaded by JS from /items (so UI stays fast and never hangs on loading).
+    Renders the dashboard HTML.
+    We pass "items" to the template so the page loads instantly (no endless LOADING).
     """
-    return templates.TemplateResponse("index.html", {"request": request})
+    items = crud.get_items(db)
+    # Simple stats for cards
+    total_rows = len(items)
+    total_qty = sum([int(getattr(i, "qty", 0) or 0) for i in items])
+    total_value = sum(
+        [
+            (float(getattr(i, "price", 0) or 0) * float(getattr(i, "qty", 0) or 0))
+            for i in items
+        ]
+    )
+
+    return templates.TemplateResponse(
+        "index.html",
+        {
+            "request": request,
+            "items": items,
+            "total_rows": total_rows,
+            "total_qty": total_qty,
+            "total_value": total_value,
+        },
+    )
 
 
-# -----------------------------
-# CRUD APIs
-# -----------------------------
+# ----------------------------
+# 7) API: List items
+# ----------------------------
 @app.get("/items", response_model=List[schemas.ItemOut])
 def list_items(db: Session = Depends(get_db)):
-    """
-    Returns all items in the database.
-    """
-    items = db.query(models.Item).order_by(models.Item.id.desc()).all()
-    return items
+    return crud.get_items(db)
 
 
+# ----------------------------
+# 8) API: Create item
+# ----------------------------
 @app.post("/items", response_model=schemas.ItemOut)
 def add_item(item: schemas.ItemCreate, db: Session = Depends(get_db)):
-    """
-    Creates a new item.
-    """
-    db_item = models.Item(
-        name=item.name,
-        sku=item.sku,
-        qty=item.qty,
-        price=item.price,
-    )
-    db.add(db_item)
-    db.commit()
-    db.refresh(db_item)
-    return db_item
+    return crud.create_item(db=db, item=item)
 
 
+# ----------------------------
+# 9) API: Get one item (optional)
+# ----------------------------
 @app.get("/items/{item_id}", response_model=schemas.ItemOut)
 def get_one_item(item_id: int, db: Session = Depends(get_db)):
-    """
-    Returns one item by ID.
-    """
-    db_item = db.query(models.Item).filter(models.Item.id == item_id).first()
-    if not db_item:
+    obj = crud.get_item(db, item_id)
+    if not obj:
         raise HTTPException(status_code=404, detail="Item not found")
-    return db_item
+    return obj
 
 
+# ----------------------------
+# 10) API: Update item
+# ----------------------------
 @app.put("/items/{item_id}", response_model=schemas.ItemOut)
-def update_one_item(item_id: int, item: schemas.ItemCreate, db: Session = Depends(get_db)):
+def update_item(item_id: int, item: schemas.ItemCreate, db: Session = Depends(get_db)):
     """
-    Updates an item (full update).
-    For simplicity, we reuse ItemCreate schema:
-    - name, sku, qty, price will be replaced.
+    Beginner shortcut:
+    - We reuse ItemCreate schema for update.
+    - Later you can make a separate ItemUpdate schema (optional fields).
     """
-    db_item = db.query(models.Item).filter(models.Item.id == item_id).first()
-    if not db_item:
+    obj = crud.update_item(db, item_id=item_id, item=item)
+    if not obj:
         raise HTTPException(status_code=404, detail="Item not found")
-
-    db_item.name = item.name
-    db_item.sku = item.sku
-    db_item.qty = item.qty
-    db_item.price = item.price
-
-    db.commit()
-    db.refresh(db_item)
-    return db_item
+    return obj
 
 
+# ----------------------------
+# 11) API: Delete item
+# ----------------------------
 @app.delete("/items/{item_id}")
-def delete_one_item(item_id: int, db: Session = Depends(get_db)):
-    """
-    Deletes an item.
-    """
-    db_item = db.query(models.Item).filter(models.Item.id == item_id).first()
-    if not db_item:
+def delete_item(item_id: int, db: Session = Depends(get_db)):
+    ok = crud.delete_item(db, item_id=item_id)
+    if not ok:
         raise HTTPException(status_code=404, detail="Item not found")
-
-    db.delete(db_item)
-    db.commit()
-    return {"deleted": True, "id": item_id}
+    return {"ok": True}
 
 
-# -----------------------------
-# Export Helpers
-# -----------------------------
-def _export_filename(base: str, ext: str) -> str:
-    """
-    Creates a nice filename like:
-    inventory_2026-01-29_18-32-10.xlsx
-    """
-    ts = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-    return f"{base}_{ts}.{ext}"
+# ----------------------------
+# 12) Exports: Excel + PDF (A4)
+# ----------------------------
+@app.get("/exports/items.xlsx")
+def export_items_excel(db: Session = Depends(get_db)):
+    items = crud.get_items(db)
 
+    # Convert ORM objects into simple dicts (safe for export)
+    rows = []
+    for i in items:
+        rows.append(
+            {
+                "id": getattr(i, "id", None),
+                "name": getattr(i, "name", ""),
+                "sku": getattr(i, "sku", ""),
+                "qty": getattr(i, "qty", 0),
+                "price": getattr(i, "price", None),
+            }
+        )
 
-# -----------------------------
-# Export: Excel (XLSX)
-# -----------------------------
-@app.get("/export/items.xlsx")
-def export_items_xlsx(db: Session = Depends(get_db)):
-    """
-    Exports all items to an Excel file (modern .xlsx).
-    Requires: openpyxl
-    """
-    from openpyxl import Workbook
-    from openpyxl.styles import Font, Alignment
-    from openpyxl.utils import get_column_letter
+    data = items_to_xlsx_bytes(rows)
+    filename = make_export_filename(prefix="items", ext="xlsx")
 
-    items = db.query(models.Item).order_by(models.Item.id.asc()).all()
-
-    wb = Workbook()
-    ws = wb.active
-    ws.title = "Inventory"
-
-    headers = ["ID", "Name", "SKU", "QTY", "Price", "Value"]
-    ws.append(headers)
-
-    # Style header row
-    header_font = Font(bold=True)
-    for col_idx, h in enumerate(headers, start=1):
-        cell = ws.cell(row=1, column=col_idx)
-        cell.font = header_font
-        cell.alignment = Alignment(horizontal="center")
-
-    # Data rows
-    for it in items:
-        price = it.price if it.price is not None else None
-        value = (it.qty * it.price) if (it.price is not None) else None
-        ws.append([it.id, it.name, it.sku, it.qty, price, value])
-
-    # Set column widths (simple auto-ish sizing)
-    for col in range(1, len(headers) + 1):
-        ws.column_dimensions[get_column_letter(col)].width = 18
-
-    # Save to bytes
-    stream = BytesIO()
-    wb.save(stream)
-    stream.seek(0)
-
-    filename = _export_filename("inventory", "xlsx")
     return StreamingResponse(
-        stream,
+        iter([data]),
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
 
 
-# -----------------------------
-# Export: PDF (A4)
-# -----------------------------
-@app.get("/export/items.pdf")
+@app.get("/exports/items.pdf")
 def export_items_pdf(db: Session = Depends(get_db)):
-    """
-    Exports all items to an A4 PDF.
-    Requires: reportlab
-    """
-    from reportlab.lib.pagesizes import A4
-    from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
-    from reportlab.lib import colors
-    from reportlab.lib.styles import getSampleStyleSheet
+    items = crud.get_items(db)
 
-    items = db.query(models.Item).order_by(models.Item.id.asc()).all()
-
-    buffer = BytesIO()
-    doc = SimpleDocTemplate(buffer, pagesize=A4, leftMargin=24, rightMargin=24, topMargin=24, bottomMargin=24)
-
-    styles = getSampleStyleSheet()
-    story = []
-
-    story.append(Paragraph("Inventory Report (A4)", styles["Title"]))
-    story.append(Paragraph(datetime.now().strftime("%Y-%m-%d %H:%M:%S"), styles["Normal"]))
-    story.append(Spacer(1, 12))
-
-    data = [["ID", "Name", "SKU", "QTY", "Price", "Value"]]
-    for it in items:
-        price = "" if it.price is None else f"{it.price:.2f}"
-        value = "" if it.price is None else f"{(it.qty * it.price):.2f}"
-        data.append([str(it.id), it.name, it.sku, str(it.qty), price, value])
-
-    table = Table(data, colWidths=[40, 170, 120, 60, 60, 70])
-    table.setStyle(
-        TableStyle(
-            [
-                ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#0F172A")),  # dark header
-                ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
-                ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
-                ("ALIGN", (0, 0), (-1, 0), "CENTER"),
-                ("GRID", (0, 0), (-1, -1), 0.25, colors.HexColor("#CBD5E1")),
-                ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#F8FAFC")]),
-                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-            ]
+    rows = []
+    for i in items:
+        rows.append(
+            {
+                "id": getattr(i, "id", None),
+                "name": getattr(i, "name", ""),
+                "sku": getattr(i, "sku", ""),
+                "qty": getattr(i, "qty", 0),
+                "price": getattr(i, "price", None),
+            }
         )
-    )
 
-    story.append(table)
-    doc.build(story)
+    data = items_to_pdf_bytes(rows, page_size="A4")
+    filename = make_export_filename(prefix="items", ext="pdf")
 
-    buffer.seek(0)
-    filename = _export_filename("inventory", "pdf")
     return StreamingResponse(
-        buffer,
+        iter([data]),
         media_type="application/pdf",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
