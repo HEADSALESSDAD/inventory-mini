@@ -1,0 +1,77 @@
+<!-- app/templates/base.html -->
+<!doctype html>
+<html lang="fa" dir="rtl">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>{{ title if title else "Inventory Mini" }}</title>
+
+  <!-- فونت ساده و تمیز (اگر اینترنت داری بهتر نمایش میده) -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@300;400;600;800&display=swap" rel="stylesheet">
+
+  <!-- CSS اصلی پروژه -->
+  <link rel="stylesheet" href="/static/css/app.css" />
+</head>
+
+<body>
+  <!-- لایه‌ی پس‌زمینه -->
+  <div class="bg-blobs"></div>
+
+  <!-- لودینگ تمام صفحه -->
+  <div id="appLoading" class="app-loading hidden">
+    <div class="spinner"></div>
+    <div class="loading-text">در حال بارگذاری...</div>
+  </div>
+
+  <!-- Toast پیام‌ها -->
+  <div id="toast" class="toast hidden"></div>
+
+  <div class="layout">
+    <!-- Sidebar -->
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="brand-logo">IM</div>
+        <div class="brand-text">
+          <div class="brand-title">Inventory Mini</div>
+          <div class="brand-sub">Warehouse UI</div>
+        </div>
+      </div>
+
+      <nav class="nav">
+        <button class="nav-item active" data-tab="inventory">انبار (Inventory)</button>
+        <button class="nav-item" data-tab="reports">گزارش‌ها (Reports)</button>
+        <button class="nav-item" data-tab="settings">تنظیمات (Settings)</button>
+      </nav>
+
+      <div class="sidebar-foot">
+        <div class="hint">
+          Swagger (/docs) برای تست API است، نه برای زندگی واقعی.
+        </div>
+      </div>
+    </aside>
+
+    <!-- Main -->
+    <main class="main">
+      <header class="topbar">
+        <div class="topbar-left">
+          <div class="page-title" id="pageTitle">داشبورد انبار</div>
+          <div class="page-sub" id="pageSub">مدیریت آیتم‌ها، خروجی Excel/PDF، و گزارش‌ها</div>
+        </div>
+
+        <div class="topbar-right">
+          <a class="chip" href="/docs" target="_blank">Swagger</a>
+          <a class="chip" href="/health" target="_blank">Health</a>
+        </div>
+      </header>
+
+      <section class="content">
+        {% block content %}{% endblock %}
+      </section>
+    </main>
+  </div>
+
+  <script src="/static/js/app.js"></script>
+</body>
+</html>

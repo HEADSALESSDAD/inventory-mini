@@ -1,0 +1,32 @@
+<!-- app/templates/index.html -->
+<html>
+  <body>
+    <h2>Inventory Mini</h2>
+
+    <!-- چرا اینجا لوپ داریم؟
+         چون FastAPI لیست items رو می‌فرسته و Jinja2 اینجا نمایش می‌ده -->
+    <table border="1" cellpadding="6">
+      <tr>
+        <th>ID</th>
+        <th>Name</th>
+        <th>Qty</th>
+      </tr>
+
+      {% for it in items %}
+      <tr>
+        <td>{{ it.id }}</td>
+        <td>{{ it.name }}</td>
+        <td>{{ it.qty }}</td>
+      </tr>
+      {% endfor %}
+
+      {% if items|length == 0 %}
+      <tr>
+        <td colspan="3">هیچ آیتمی ثبت نشده.</td>
+      </tr>
+      {% endif %}
+    </table>
+
+    <p>برای اضافه کردن آیتم فعلاً از Swagger استفاده کن: <a href="/docs">/docs</a></p>
+  </body>
+</html>
