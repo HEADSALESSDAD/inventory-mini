@@ -1,34 +1,41 @@
 # app/schemas.py
 """
-Schemas یعنی شکل داده‌هایی که API می‌گیرد و برمی‌گرداند.
-Pydantic کمک می‌کند ورودی‌ها validate شوند (یعنی خراب وارد نشود).
+API schemas (Pydantic)
+
+Beginner notes:
+- These classes describe what the API receives/sends
+- They are NOT database tables, just "data shapes"
 """
 
-from pydantic import BaseModel, Field
-from typing import Optional
+from __future__ import annotations
 
-class ItemCreate(BaseModel):
-    # ورودی برای ساخت کالا
-    name: str = Field(..., min_length=1)
-    sku: Optional[str] = None
-    qty: int = Field(0, ge=0)
-    price: Optional[float] = Field(None, ge=0)
+from typing import Optional
+from pydantic import BaseModel, ConfigDict, Field
+
+
+class ItemBase(BaseModel):
+    name: str = Field(..., examples=["Oil Filter"])
+    sku: str = Field(..., examples=["TOY-OF-90915"])
+    qty: int = Field(0, ge=0, examples=[10])
+    price: Optional[float] = Field(None, ge=0, examples=[12.50])
+
+
+class ItemCreate(ItemBase):
+    """Used when creating a new item."""
+    pass
+
 
 class ItemUpdate(BaseModel):
-    # ورودی برای آپدیت (همه چیز اختیاری)
-    name: Optional[str] = Field(None, min_length=1)
+    """Used when updating an existing item (all fields optional)."""
+    name: Optional[str] = None
     sku: Optional[str] = None
     qty: Optional[int] = Field(None, ge=0)
     price: Optional[float] = Field(None, ge=0)
 
-class ItemOut(BaseModel):
-    # خروجی API
-    id: int
-    name: str
-    sku: Optional[str]
-    qty: int
-    price: Optional[float]
 
-    class Config:
-        # اجازه می‌دهد از مدل SQLAlchemy مستقیم تبدیل شود
-        from_attributes = True
+class ItemOut(ItemBase):
+    """What we return to clients (includes ID)."""
+    id: int
+
+    # Pydantic v2: allow reading from SQLAlchemy objects
+    model_config = ConfigDict(from_attributes=True)

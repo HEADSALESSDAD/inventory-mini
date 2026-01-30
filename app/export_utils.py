@@ -1,134 +1,120 @@
 # app/export_utils.py
 """
-این فایل فقط یک کار می‌کند:
-تبدیل لیست آیتم‌ها به فایل Excel یا PDF و برگرداندن آن به شکل Bytes (برای دانلود).
+Export helpers (Excel + PDF)
 
-چرا جدا؟
-- main.py شلوغ نشود
-- بعداً برای گزارش‌های دیگر هم همین را کپی کنیم
+Beginner notes:
+- We generate the file in memory (BytesIO)
+- Then FastAPI streams it to the browser as a download
 """
+
+from __future__ import annotations
 
 from io import BytesIO
 from datetime import datetime
 
-# --- Excel (.xlsx) ---
 from openpyxl import Workbook
-from openpyxl.utils import get_column_letter
-
-# --- PDF (A4) ---
+from openpyxl.styles import Font, Alignment
 from reportlab.lib.pagesizes import A4
 from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
 from reportlab.lib import colors
 from reportlab.lib.styles import getSampleStyleSheet
 
-# اگر می‌خواهی فارسی داخل PDF درست نمایش داده شود، از فونت ویندوز استفاده می‌کنیم (Tahoma).
-# نکته: reportlab به صورت پیش‌فرض فونت فارسی ندارد.
-from reportlab.pdfbase import pdfmetrics
-from reportlab.pdfbase.ttfonts import TTFont
 
-
-def _now_stamp() -> str:
-    """برای اسم فایل‌ها (مثلاً 20260129_153012)"""
-    return datetime.now().strftime("%Y%m%d_%H%M%S")
-
-
-def items_to_xlsx_bytes(items: list[dict]) -> BytesIO:
+def make_export_filename(prefix: str, ext: str) -> str:
     """
-    items: لیستی از dict ها مثل:
-      {"id": 1, "name": "Oil Filter", "qty": 10, "location": "A-01"}
+    Create a clean filename like:
+    inventory_items_2026-01-29_1730.xlsx
+    """
+    stamp = datetime.now().strftime("%Y-%m-%d_%H%M")
+    return f"{prefix}_{stamp}.{ext}"
 
-    خروجی: یک BytesIO آماده دانلود به عنوان .xlsx
+
+def items_to_xlsx_bytes(items: list[dict]) -> bytes:
+    """
+    Create an .xlsx file in memory.
+    items is a list of dicts like:
+    {"id":1,"name":"Oil Filter","sku":"TOY-...","qty":10,"price":12.5}
     """
     wb = Workbook()
     ws = wb.active
-    ws.title = "Items"
+    ws.title = "Inventory"
 
-    # هدرهای اکسل
-    headers = ["ID", "Name", "Qty", "Location"]
+    headers = ["ID", "Name", "SKU", "Qty", "Price", "Total Value"]
     ws.append(headers)
 
-    # ردیف‌ها
+    # Style header row
+    header_font = Font(bold=True)
+    for col in range(1, len(headers) + 1):
+        cell = ws.cell(row=1, column=col)
+        cell.font = header_font
+        cell.alignment = Alignment(horizontal="center")
+
+    # Add data rows
     for it in items:
-        ws.append([
-            it.get("id"),
-            it.get("name"),
-            it.get("qty"),
-            it.get("location"),
-        ])
+        price = it.get("price")
+        qty = it.get("qty") or 0
+        total = (qty * price) if (price is not None) else None
 
-    # تنظیم عرض ستون‌ها که قشنگ‌تر شود
-    for col_idx, col in enumerate(ws.columns, start=1):
-        max_len = 0
-        for cell in col:
-            val = "" if cell.value is None else str(cell.value)
-            max_len = max(max_len, len(val))
+        ws.append([it.get("id"), it.get("name"), it.get("sku"), qty, price, total])
 
-        ws.column_dimensions[get_column_letter(col_idx)].width = min(max_len + 2, 40)
+    # Make it readable: column widths
+    widths = [8, 28, 20, 10, 12, 14]
+    for i, w in enumerate(widths, start=1):
+        ws.column_dimensions[chr(64 + i)].width = w
 
-    # ذخیره در حافظه (نه روی دیسک)
-    buf = BytesIO()
-    wb.save(buf)
-    buf.seek(0)
-    return buf
+    # Save to bytes
+    bio = BytesIO()
+    wb.save(bio)
+    return bio.getvalue()
 
 
-def items_to_pdf_bytes(items: list[dict], title: str = "Items Report") -> BytesIO:
+def items_to_pdf_bytes(items: list[dict]) -> bytes:
     """
-    خروجی PDF A4 (Portrait).
-    اگر جدول خیلی عریض شد، بعداً می‌کنیم Landscape.
-
-    نکته مهم برای فارسی:
-    ما فونت Tahoma ویندوز را رجیستر می‌کنیم تا متن فارسی مربع نشود.
+    Create a simple A4 PDF report using ReportLab.
     """
-    # رجیستر فونت فارسی/عربی ویندوز (Tahoma)
-    # اگر خطا داد یعنی مسیر فونت روی سیستم فرق دارد.
-    try:
-        pdfmetrics.registerFont(TTFont("Tahoma", r"C:\Windows\Fonts\tahoma.ttf"))
-        base_font = "Tahoma"
-    except Exception:
-        # اگر نشد، با فونت پیش‌فرض ادامه می‌دهیم (ممکن است فارسی را درست نشان ندهد)
-        base_font = "Helvetica"
+    bio = BytesIO()
 
-    buf = BytesIO()
-    doc = SimpleDocTemplate(buf, pagesize=A4, topMargin=24, bottomMargin=24, leftMargin=24, rightMargin=24)
+    doc = SimpleDocTemplate(
+        bio,
+        pagesize=A4,
+        leftMargin=24,
+        rightMargin=24,
+        topMargin=24,
+        bottomMargin=24,
+    )
 
     styles = getSampleStyleSheet()
-    style_title = styles["Heading2"]
-    style_title.fontName = base_font
-
     story = []
-    story.append(Paragraph(title, style_title))
+
+    story.append(Paragraph("Inventory Report (A4)", styles["Title"]))
+    story.append(Paragraph(datetime.now().strftime("%Y-%m-%d %H:%M"), styles["Normal"]))
     story.append(Spacer(1, 12))
 
-    # جدول PDF
-    data = [["ID", "Name", "Qty", "Location"]]
+    data = [["ID", "Name", "SKU", "Qty", "Price"]]
     for it in items:
         data.append([
             str(it.get("id", "")),
             str(it.get("name", "")),
+            str(it.get("sku", "")),
             str(it.get("qty", "")),
-            str(it.get("location", "")),
+            "" if it.get("price") is None else f"{it.get('price'):.2f}",
         ])
 
-    table = Table(data, hAlign="LEFT")
+    table = Table(data, repeatRows=1)
 
     table.setStyle(TableStyle([
-        ("FONTNAME", (0, 0), (-1, -1), base_font),
-        ("BACKGROUND", (0, 0), (-1, 0), colors.lightgrey),
-        ("TEXTCOLOR", (0, 0), (-1, 0), colors.black),
-        ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
-        ("ALIGN", (0, 0), (-1, 0), "CENTER"),
+        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#0f172a")),  # dark header
+        ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+        ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+        ("FONTSIZE", (0, 0), (-1, 0), 10),
+
+        ("GRID", (0, 0), (-1, -1), 0.5, colors.lightgrey),
+        ("FONTSIZE", (0, 1), (-1, -1), 9),
         ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-        ("PADDING", (0, 0), (-1, -1), 6),
+        ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.whitesmoke, colors.white]),
     ]))
 
     story.append(table)
     doc.build(story)
 
-    buf.seek(0)
-    return buf
-
-
-def make_export_filename(prefix: str, ext: str) -> str:
-    """اسم فایل دانلودی"""
-    return f"{prefix}_{_now_stamp()}.{ext}"
+    return bio.getvalue()

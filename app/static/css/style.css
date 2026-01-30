@@ -314,3 +314,75 @@ body{
   z-index: 1000;
   min-width: 220px;
 }
+
+
+
+/* app/static/style.css */
+
+/* Color palette (simple and professional):
+   - Navy: #0f172a
+   - Teal: #14b8a6
+   - Light background: #f8fafc
+*/
+
+:root {
+  --navy: #0f172a;
+  --teal: #14b8a6;
+  --bg: #f8fafc;
+}
+
+body {
+  background: var(--bg);
+}
+
+.brand-badge {
+  background: var(--teal);
+  color: #062a26;
+  font-weight: 700;
+  padding: 6px 10px;
+  border-radius: 10px;
+}
+
+.sidebar {
+  background: var(--navy);
+  min-height: 100vh;
+}
+
+.sidebar a {
+  color: #cbd5e1;
+  text-decoration: none;
+  display: block;
+  padding: 10px 12px;
+  border-radius: 10px;
+}
+
+.sidebar a:hover {
+  background: rgba(20, 184, 166, 0.15);
+  color: white;
+}
+
+.card-kpi {
+  border: 0;
+  border-radius: 16px;
+  box-shadow: 0 6px 18px rgba(15, 23, 42, 0.08);
+}
+
+.btn-teal {
+  background: var(--teal);
+  border: none;
+  color: #062a26;
+  font-weight: 700;
+}
+
+.btn-teal:hover {
+  filter: brightness(0.95);
+}
+
+.table thead th {
+  background: var(--navy);
+  color: white;
+}
+
+.rounded-16 {
+  border-radius: 16px;
+}

@@ -156,3 +156,9 @@ function escapeHtml(s){
 
 // On first load, refresh the count for server-rendered table
 filterTable("");
+
+
+
+
+
+
