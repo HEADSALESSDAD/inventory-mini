@@ -1,25 +1,31 @@
 # app/models.py
 """
-اینجا جدول‌های دیتابیس را تعریف می‌کنیم (ORM).
-ORM یعنی به جای SQL نوشتن، با کلاس‌های پایتون جدول می‌سازیم.
+Database tables (SQLAlchemy Models)
+
+Beginner notes:
+- Each class = a table
+- Each column = a field in that table
 """
 
-from sqlalchemy import Column, Integer, String, Float
+from __future__ import annotations
+
+from sqlalchemy import Column, Integer, String, Numeric
 from .db import Base
 
+
 class Item(Base):
-    """
-    جدول items:
-    - id: کلید اصلی (عدد یکتا)
-    - name: اسم کالا
-    - sku: کد کالا (اختیاری)
-    - qty: موجودی
-    - price: قیمت (اختیاری)
-    """
     __tablename__ = "items"
 
+    # Primary key (auto increment)
     id = Column(Integer, primary_key=True, index=True)
+
+    # Basic fields
     name = Column(String(200), nullable=False)
-    sku = Column(String(100), nullable=True, index=True)
+    sku = Column(String(100), nullable=False, index=True)
+
+    # qty = quantity in stock (integer)
     qty = Column(Integer, nullable=False, default=0)
-    price = Column(Float, nullable=True)
+
+    # price = optional (Decimal money)
+    price = Column(Numeric(10, 2), nullable=True)
+

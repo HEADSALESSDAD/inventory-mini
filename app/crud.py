@@ -1,58 +1,70 @@
 # app/crud.py
 """
-CRUD یعنی:
-C = Create (ساخت)
-R = Read (خواندن)
-U = Update (ویرایش)
-D = Delete (حذف)
+CRUD = Create, Read, Update, Delete
+
+Beginner notes:
+- These functions talk to the database
+- main.py calls these to keep code clean
 """
 
+from __future__ import annotations
+
 from sqlalchemy.orm import Session
+from sqlalchemy import select
+
 from . import models, schemas
 
-def create_item(db: Session, item: schemas.ItemCreate):
-    # یک رکورد جدید می‌سازیم
-    db_item = models.Item(
-        name=item.name,
-        sku=item.sku,
+
+def get_items(db: Session) -> list[models.Item]:
+    # SELECT * FROM items ORDER BY id DESC
+    stmt = select(models.Item).order_by(models.Item.id.desc())
+    return list(db.execute(stmt).scalars().all())
+
+
+def get_item(db: Session, item_id: int) -> models.Item | None:
+    # SELECT * FROM items WHERE id = item_id
+    stmt = select(models.Item).where(models.Item.id == item_id)
+    return db.execute(stmt).scalars().first()
+
+
+def create_item(db: Session, item: schemas.ItemCreate) -> models.Item:
+    new_item = models.Item(
+        name=item.name.strip(),
+        sku=item.sku.strip(),
         qty=item.qty,
-        price=item.price
+        price=item.price,
     )
-    db.add(db_item)      # اضافه به session
-    db.commit()          # ذخیره در دیتابیس
-    db.refresh(db_item)  # گرفتن id ساخته شده
-    return db_item
+    db.add(new_item)
+    db.commit()       # save changes
+    db.refresh(new_item)  # reload from DB (gets the ID)
+    return new_item
 
-def get_items(db: Session, skip: int = 0, limit: int = 100):
-    return db.query(models.Item).offset(skip).limit(limit).all()
 
-def get_item(db: Session, item_id: int):
-    return db.query(models.Item).filter(models.Item.id == item_id).first()
-
-def update_item(db: Session, item_id: int, data: schemas.ItemUpdate):
-    db_item = get_item(db, item_id)
-    if not db_item:
+def update_item(db: Session, item_id: int, patch: schemas.ItemUpdate) -> models.Item | None:
+    obj = get_item(db, item_id)
+    if not obj:
         return None
 
-    # فقط فیلدهایی که کاربر داده را آپدیت می‌کنیم
-    if data.name is not None:
-        db_item.name = data.name
-    if data.sku is not None:
-        db_item.sku = data.sku
-    if data.qty is not None:
-        db_item.qty = data.qty
-    if data.price is not None:
-        db_item.price = data.price
+    # Only update fields that user sent
+    if patch.name is not None:
+        obj.name = patch.name.strip()
+    if patch.sku is not None:
+        obj.sku = patch.sku.strip()
+    if patch.qty is not None:
+        obj.qty = patch.qty
+    if patch.price is not None:
+        obj.price = patch.price
 
     db.commit()
-    db.refresh(db_item)
-    return db_item
+    db.refresh(obj)
+    return obj
 
-def delete_item(db: Session, item_id: int):
-    db_item = get_item(db, item_id)
-    if not db_item:
-        return None
 
-    db.delete(db_item)
+def delete_item(db: Session, item_id: int) -> bool:
+    obj = get_item(db, item_id)
+    if not obj:
+        return False
+
+    db.delete(obj)
     db.commit()
-    return db_item
+    return True
